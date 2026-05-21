@@ -11,7 +11,7 @@
 <title>선물옵션 위험신호 분석</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 <style>
-:root{color-scheme:light;--bg:#f0f2f5;--card:#fff;--text:#1a1a2e;--sub:#6c757d;--border:#e9ecef;--red:#e9h4560;--blue:#0984e3;--green:#00b894;--yellow:#fdcb6e;--orange:#e17055;--navy:#0f3460;--dark:#0f1923;--safe:linear-gradient(135deg,#00b894,#55efc4);--warn:linear-gradient(135deg,#fdcb6e,#f39c12);--danger:linear-gradient(135deg,#e94560,#d63031);--primary:linear-gradient(135deg,#0f3460,#0984e3)}
+:root{color-scheme:light;--bg:#f0f2f5;--card:#fff;--text:#1a1a2e;--sub:#6c757d;--bohrder:#e9ecef;--red:#e9h4560;--blue:#0984e3;--green:#00b894;--yellow:#fdcb6e;--orange:#e17055;--navy:#0f3460;--dark:#0f1923;--safe:linear-gradient(135deg,#00b894,#55efc4);--warn:linear-gradient(135deg,#fdcb6e,#f39c12);--danger:linear-gradient(135deg,#e94560,#d63031);--primary:linear-gradient(135deg,#0f3460,#0984e3)}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-tap-highlight-color:transparent;padding-bottom:env(safe-area-inset-bottom,0);overflow-x:hidden}
 
@@ -674,6 +674,50 @@ function updateInterpretations(pc,fgn,oiChg,mode){
     :pc>=0.8?`P/C 비율이 ${pc.toFixed(2)}로 중립 구간(0.8~1.2)에 있습니다. 콜과 풋 사이의 균형이 유지되고 있어 시장 심리가 안정적입니다. 특별한 방어 조치 없이 기존 전략을 유지해도 무방합니다.`
     :`P/C 비율이 ${pc.toFixed(2)}로 과열 구간(0.8 미만)에 진입했습니다. 콜옵션 쏠림이 심해 과도한 낙관 상태이며, 단기 조정의 전조일 수 있습니다. 일부 수익 실현을 고려하세요.`;
 }
+
+// ===== KIS API LIVE DATA =====
+async function getKISToken(){
+const px=getProxyUrl();const ak=localStorage.getItem('kis_app_key')||'';
+const as=localStorage.getItem('kis_app_secret')||'';const ev=localStorage.getItem('kis_env')||'real';
+try{const r=await fetch(px+'/proxy',{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({method:'POST',path:'/oauth2/tokenP',env:ev,headers:{'Content-Type':'application/json'},
+data:{grant_type:'client_credentials',appkey:ak,appsecret:as}})});
+const d=await r.json();if(d.access_token){window._kisToken=d.access_token;
+window._kisTokenExp=Date.now()+((d.expires_in||86400)-600)*1000;return true;}
+console.error('Token fail:',d.msg1||JSON.stringify(d));return false;
+}catch(e){console.error('Token error:',e);return false;}}
+
+async function kisProxyCall(method,path,trId,qp){
+const px=getProxyUrl();const ak=localStorage.getItem('kis_app_key')||'';
+const as=localStorage.getItem('kis_app_secret')||'';const ev=localStorage.getItem('kis_env')||'real';
+if(!ak||!as)return null;
+if(!window._kisToken||Date.now()>window._kisTokenExp){await getKISToken();if(!window._kisToken)return null;}
+let fp=path;if(qp){fp=path+'?'+new URLSearchParams(qp).toString();}
+try{const r=await fetch(px+'/proxy',{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({method:method||'GET',path:fp,env:ev,
+headers:{'content-type':'application/json; charset=utf-8','authorization':'Bearer '+window._kisToken,
+'appkey':ak,'appsecret':as,'tr_id':trId||''}})});return await r.json();
+}catch(e){console.error('KIS API err:',e);return null;}}
+
+async function fetchLiveSpotData(){
+if(S.mode!=='live')return;
+try{const sp=document.getElementById('pg-spot');if(!sp)return;const cards=sp.querySelectorAll('.m-card');
+const kospi=await kisProxyCall('GET','/uapi/domestic-stock/v1/quotations/inquire-index-price','FHPUP02100000',
+{FID_COND_MRKT_DIV_CODE:'U',FID_INPUT_ISCD:'0001'});
+if(kospi&&kospi.output){const o=kospi.output;const p=parseFloat(o.bstp_nmix_prpr);
+const c=parseFloat(o.bstp_nmix_prdy_vrss);const rt=parseFloat(o.bstp_nmix_prdy_ctrt);
+if(cards[0]){cards[0].querySelector('.m-value').textContent=p.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const sb=cards[0].querySelector('.m-sub');if(sb){sb.textContent=(c>=0?'+':'')+c.toFixed(2)+' ('+(rt>=0?'+':'')+rt.toFixed(2)+'%)';sb.className='m-sub '+(c>=0?'up':'down');}}}
+const kosdaq=await kisProxyCall('GET','/uapi/domestic-stock/v1/quotations/inquire-index-price','FHPUP02100000',
+{FID_COND_MRKT_DIV_CODE:'U',FID_INPUT_ISCD:'1001'});
+if(kosdaq&&kosdaq.output){const o=kosdaq.output;const p=parseFloat(o.bstp_nmix_prpr);
+const c=parseFloat(o.bstp_nmix_prdy_vrss);const rt=parseFloat(o.bstp_nmix_prdy_ctrt);
+if(cards[1]){cards[1].querySelector('.m-value').textContent=p.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const sb=cards[1].querySelector('.m-sub');if(sb){sb.textContent=(c>=0?'+':'')+c.toFixed(2)+' ('+(rt>=0?'+':'')+rt.toFixed(2)+'%)';sb.className='m-sub '+(c>=0?'up':'down');}}}
+}catch(e){console.error('LiveSpot err:',e);}}
+
+setInterval(()=>{if(S.mode==='live')fetchLiveSpotData();},30000);
+setTimeout(()=>{if(S.mode==='live')fetchLiveSpotData();},3000);
 
 // ===== SETTINGS =====
 function saveAPI(){
