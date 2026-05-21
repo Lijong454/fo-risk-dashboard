@@ -392,7 +392,30 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
   </div>
 
-  <div class="info-box">
+  <div class="card">
+<div class="card-title">🎛️ 대시보드 제어</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+<button class="btn" onclick="exitLiveMode()" style="background:var(--yellow);color:#333;font-size:11px;padding:10px 4px">⏸️ Live 종료</button>
+<button class="btn" onclick="refreshDashboard()" style="background:var(--blue);color:#fff;font-size:11px;padding:10px 4px">🔄 새로고침</button>
+<button class="btn" onclick="if(confirm('API 정보를 모두 삭제하고 Demo 모드로 전환합니다.'))logoutAPI()" style="background:var(--red);color:#fff;font-size:11px;padding:10px 4px">🚪 로그아웃</button>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title">⭐ 관심종목 관리</div>
+<div id="wlSettingsList"></div>
+<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-top:8px">
+<input type="text" id="addStockName" placeholder="종목명" style="padding:6px 8px;border:1px solid #ced4da;border-radius:6px;font-size:12px">
+<input type="text" id="addStockCode" placeholder="6자리 코드" maxlength="6" style="padding:6px 8px;border:1px solid #ced4da;border-radius:6px;font-size:12px">
+<button onclick="addWatchStock()" style="background:var(--navy);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:11px;cursor:pointer">추가</button>
+</div>
+<div style="margin-top:6px;display:flex;justify-content:space-between;align-items:center">
+<div id="wlMsg" style="font-size:11px;color:var(--green)"></div>
+<button onclick="resetWatchlist()" style="background:none;border:none;color:var(--sub);font-size:10px;cursor:pointer;text-decoration:underline">기본값 초기화</button>
+</div>
+</div>
+
+<div class="info-box">
     현재 <b>DEMO 모드</b>입니다. 시뮬레이션 데이터가 표시됩니다.<br>
     KIS Developers에서 API 키를 발급받아 입력하면 실시간 모드로 전환됩니다.<br>
     👉 <a href="https://apiportal.koreainvestment.com" style="color:var(--navy)">KIS Developers 바로가기</a>
@@ -426,6 +449,16 @@ setInterval(tick,1000);tick();
 
 // ===== STATE =====
 const S={risk:62,mode:'demo',signals:[],cfg:{pcW:1.3,fgnW:-10000,oiW:5}};
+
+// ===== WATCHLIST MANAGEMENT =====
+const DEFAULT_STOCKS=[{name:'삼성전자',code:'005930'},{name:'SK하이닉스',code:'000660'},{name:'현대차',code:'005380'},{name:'NAVER',code:'035420'},{name:'카카오',code:'035720'},{name:'LG에너지솔루션',code:'373220'}];
+function getWatchlist(){const c=localStorage.getItem('kis_watchlist');if(c)try{return JSON.parse(c)}catch(e){}return DEFAULT_STOCKS.slice();}
+function saveWatchlist(list){localStorage.setItem('kis_watchlist',JSON.stringify(list));}
+function addWatchStock(){const nameEl=document.getElementById('addStockName'),codeEl=document.getElementById('addStockCode');if(!nameEl||!codeEl)return;const name=nameEl.value.trim(),code=codeEl.value.trim();if(!name||!code||code.length!==6){document.getElementById('wlMsg').textContent='종목명과 6자리 코드를 입력하세요';return;}const list=getWatchlist();if(list.find(s=>s.code===code)){document.getElementById('wlMsg').textContent='이미 등록된 종목';return;}list.push({name,code});saveWatchlist(list);nameEl.value='';codeEl.value='';renderWatchlistSettings();document.getElementById('wlMsg').textContent='✅ 추가 완료';}
+function removeWatchStock(code){const list=getWatchlist().filter(s=>s.code!==code);saveWatchlist(list);renderWatchlistSettings();}
+function resetWatchlist(){localStorage.removeItem('kis_watchlist');renderWatchlistSettings();document.getElementById('wlMsg').textContent='✅ 기본 종목으로 초기화';}
+function renderWatchlistSettings(){const el=document.getElementById('wlSettingsList');if(!el)return;const list=getWatchlist();el.innerHTML=list.map(s=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f1f3f5"><span style="font-size:12px">'+s.name+' <span style="color:var(--sub);font-size:10px">('+s.code+')</span></span><button onclick="removeWatchStock(\''+s.code+'\')" style="background:none;border:1px solid var(--red);color:var(--red);border-radius:6px;padding:2px 8px;font-size:10px;cursor:pointer">삭제</button></div>').join('');}
+
 
 // ===== HELPERS =====
 const rand=(a,b)=>Math.round(Math.random()*(b-a)+a);
@@ -519,18 +552,12 @@ function renderCharts(){
     return `<div class="sector-bar-wrap"><div class="sector-name"><span>${s.name}</span><span class="${s.val>=0?'up':'down'}">${s.val>=0?'+':''}${s.val}억</span></div><div class="sector-bar"><div class="sector-fill ${cls}" style="width:${pct}%"></div></div></div>`;
   }).join('');
 
-  // Watchlist
-  const stocks=[
-    {name:'삼성전자',code:'005930',price:'72,400',chg:'+800',pct:'+1.12%',cls:'up'},
-    {name:'SK하이닉스',code:'000660',price:'185,500',chg:'-2,500',pct:'-1.33%',cls:'down'},
-    {name:'현대차',code:'005380',price:'248,000',chg:'+3,500',pct:'+1.43%',cls:'up'},
-    {name:'NAVER',code:'035420',price:'218,500',chg:'-1,000',pct:'-0.46%',cls:'down'},
-    {name:'카카오',code:'035720',price:'52,800',chg:'+400',pct:'+0.76%',cls:'up'},
-    {name:'LG에너지솔루션',code:'373220',price:'385,000',chg:'-5,500',pct:'-1.41%',cls:'down'},
-  ];
-  document.getElementById('watchlist').innerHTML=stocks.map(s=>`
-    <div class="watch-row"><div><div class="watch-name">${s.name}</div><div class="watch-code">${s.code}</div></div>
-    <div class="watch-price"><div class="watch-val">${s.price}</div><div class="watch-chg ${s.cls}">${s.chg} (${s.pct})</div></div></div>`).join('');
+  // Watchlist (dynamic)
+  const wlStocks=getWatchlist();
+  document.getElementById('watchlist').innerHTML=wlStocks.map(s=>`
+  <div class="watch-row"><div><div class="watch-name">${s.name}</div><div class="watch-code">${s.code}</div></div>
+  <div class="watch-price"><div class="watch-val">-</div><div class="watch-chg">로딩중...</div></div></div>`).join('');
+  if(S.mode==='live'){fetchLiveWatchlistData();}else{renderDemoWatchlist();}
 
   // P/C 30d
   dc('cPC30');
@@ -716,8 +743,36 @@ if(cards[1]){cards[1].querySelector('.m-value').textContent=p.toLocaleString('ko
 const sb=cards[1].querySelector('.m-sub');if(sb){sb.textContent=(c>=0?'+':'')+c.toFixed(2)+' ('+(rt>=0?'+':'')+rt.toFixed(2)+'%)';sb.className='m-sub '+(c>=0?'up':'down');}}}
 }catch(e){console.error('LiveSpot err:',e);}}
 
-setInterval(()=>{if(S.mode==='live')fetchLiveSpotData();},30000);
-setTimeout(()=>{if(S.mode==='live')fetchLiveSpotData();},3000);
+async function fetchLiveWatchlistData(){
+if(S.mode!=='live')return;
+try{const stocks=getWatchlist();const wl=document.getElementById('watchlist');if(!wl)return;
+let html='';
+for(const s of stocks){
+const resp=await kisProxyCall('GET','/uapi/domestic-stock/v1/quotations/inquire-price','FHKST01010100',
+{FID_COND_MRKT_DIV_CODE:'J',FID_INPUT_ISCD:s.code});
+if(resp&&resp.output){const o=resp.output;const price=parseInt(o.stck_prpr);
+const chg=parseInt(o.prdy_vrss);const pct=parseFloat(o.prdy_ctrt);const cls=chg>=0?'up':'down';
+html+=`<div class="watch-row"><div><div class="watch-name">${s.name}</div><div class="watch-code">${s.code}</div></div>
+<div class="watch-price"><div class="watch-val">${price.toLocaleString()}</div>
+<div class="watch-chg ${cls}">${chg>=0?'+':''}${chg.toLocaleString()} (${pct>=0?'+':''}${pct.toFixed(2)}%)</div></div></div>`;
+}else{html+=`<div class="watch-row"><div><div class="watch-name">${s.name}</div><div class="watch-code">${s.code}</div></div>
+<div class="watch-price"><div class="watch-val">-</div><div class="watch-chg">조회실패</div></div></div>`;}}
+wl.innerHTML=html;}catch(e){console.error('WatchList err:',e);}}
+
+function renderDemoWatchlist(){
+const stocks=getWatchlist();const wl=document.getElementById('watchlist');if(!wl)return;
+const demoData=[{p:72400,c:800,r:1.12},{p:185500,c:-2500,r:-1.33},{p:248000,c:3500,r:1.43},{p:218500,c:-1000,r:-0.46},{p:52800,c:400,r:0.76},{p:385000,c:-5500,r:-1.41}];
+wl.innerHTML=stocks.map((s,i)=>{const d=demoData[i%demoData.length];const cls=d.c>=0?'up':'down';
+return `<div class="watch-row"><div><div class="watch-name">${s.name}</div><div class="watch-code">${s.code}</div></div>
+<div class="watch-price"><div class="watch-val">${d.p.toLocaleString()}</div>
+<div class="watch-chg ${cls}">${d.c>=0?'+':''}${d.c.toLocaleString()} (${d.r>=0?'+':''}${d.r.toFixed(2)}%)</div></div></div>`;}).join('');}
+
+function exitLiveMode(){S.mode='demo';document.getElementById('modeBadge').className='badge badge-demo';document.getElementById('modeBadge').textContent='DEMO';window._kisToken=null;window._kisTokenExp=0;simulate();document.getElementById('apiMsg').textContent='DEMO 모드로 전환됨';document.getElementById('apiMsg').style.color='var(--yellow)';}
+function refreshDashboard(){location.reload();}
+function logoutAPI(){localStorage.removeItem('kis_app_key');localStorage.removeItem('kis_app_secret');localStorage.removeItem('kis_proxy_url');localStorage.removeItem('kis_account');localStorage.removeItem('kis_env');localStorage.removeItem('kis_broker');S.mode='demo';window._kisToken=null;window._kisTokenExp=0;document.getElementById('modeBadge').className='badge badge-demo';document.getElementById('modeBadge').textContent='DEMO';document.getElementById('inKey').value='';document.getElementById('inSecret').value='';document.getElementById('inProxy').value='';document.getElementById('inAcct').value='';document.getElementById('apiMsg').textContent='로그아웃 완료. API 정보 삭제됨.';document.getElementById('apiMsg').style.color='var(--red)';simulate();}
+
+setInterval(()=>{if(S.mode==='live'){fetchLiveSpotData();fetchLiveWatchlistData();}},30000);
+setTimeout(()=>{if(S.mode==='live'){fetchLiveSpotData();fetchLiveWatchlistData();}},3000);
 
 // ===== SETTINGS =====
 function saveAPI(){
@@ -772,6 +827,7 @@ document.getElementById('inProxy').value=proxy;
 document.getElementById('inAcct').value=acct;
 document.getElementById('selEnv').value=env;
 document.getElementById('selBroker').value=broker;
+renderWatchlistSettings();
 if(k&&s){
 document.getElementById('modeBadge').className='badge badge-live';
 document.getElementById('modeBadge').textContent='LIVE';S.mode='live';
