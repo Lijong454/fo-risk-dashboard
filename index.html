@@ -703,7 +703,10 @@ function updateInterpretations(pc,fgn,oiChg,mode){
 }
 
 // ===== KIS API LIVE DATA =====
+window._kisTokenPromise=null;
 async function getKISToken(){
+if(window._kisTokenPromise)return window._kisTokenPromise;
+window._kisTokenPromise=(async()=>{
 const px=getProxyUrl();const ak=localStorage.getItem('kis_app_key')||'';
 const as=localStorage.getItem('kis_app_secret')||'';const ev=localStorage.getItem('kis_env')||'real';
 try{const r=await fetch(px+'/proxy',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -712,7 +715,9 @@ data:{grant_type:'client_credentials',appkey:ak,appsecret:as}})});
 const d=await r.json();if(d.access_token){window._kisToken=d.access_token;
 window._kisTokenExp=Date.now()+((d.expires_in||86400)-600)*1000;return true;}
 console.error('Token fail:',d.msg1||JSON.stringify(d));return false;
-}catch(e){console.error('Token error:',e);return false;}}
+}catch(e){console.error('Token error:',e);return false;}
+finally{window._kisTokenPromise=null;}})();
+return window._kisTokenPromise;}
 
 async function kisProxyCall(method,path,trId,qp){
 const px=getProxyUrl();const ak=localStorage.getItem('kis_app_key')||'';
@@ -743,7 +748,7 @@ const advSub=advDecEl.closest('.m-card');if(advSub){const ms=advSub.querySelecto
 // Live: trading value
 const trVal=parseInt(o.acml_tr_pbmn)||0;
 const volEl=document.getElementById('vVolume');
-if(volEl){const tril=(trVal/1e12).toFixed(1);volEl.textContent=tril+'조';
+if(volEl){const tril=(trVal/1e6).toFixed(1);volEl.textContent=tril+'조';
 const volCard=volEl.closest('.m-card');if(volCard){const vs=volCard.querySelector('.m-sub');
 if(vs){const prvVol=parseInt(o.prdy_vol)||1;const curVol=parseInt(o.acml_vol)||0;
 if(prvVol>0){const pct=Math.round((curVol/prvVol-1)*100);vs.textContent='전일比 '+(pct>=0?'+':'')+pct+'%';}}}}
@@ -816,12 +821,12 @@ FID_COND_MRKT_DIV_CODE:'V',FID_COND_SCR_DIV_CODE:'16449',FID_INPUT_ISCD:'0001',
 FID_DIV_CLS_CODE:'1',FID_RANK_SORT_CLS_CODE:'1',FID_ETC_CLS_CODE:'1'});
 let totalBuy=0,totalSell=0;
 if(buyResp&&buyResp.output){(Array.isArray(buyResp.output)?buyResp.output:[]).forEach(item=>{
-const v=parseInt(item.ntby_tr_pbmn||'0');if(v>0)totalBuy+=v;});}
+const v=parseInt(item.frgn_ntby_tr_pbmn||'0');totalBuy+=v;});}
 if(sellResp&&sellResp.output){(Array.isArray(sellResp.output)?sellResp.output:[]).forEach(item=>{
-const v=parseInt(item.ntby_tr_pbmn||'0');if(v<0)totalSell+=v;});}
+const v=parseInt(item.frgn_ntby_tr_pbmn||'0');totalSell+=v;});}
 const netTotal=totalBuy+totalSell;
 const fgnEl=document.getElementById('vFgnSpot');
-if(fgnEl){const billions=Math.round(netTotal/1e8);
+if(fgnEl){const billions=Math.round(netTotal/100);
 fgnEl.textContent=(billions>=0?'+':'')+billions.toLocaleString()+'억';
 const fc=fgnEl.closest('.m-card');if(fc){const fs=fc.querySelector('.m-sub');
 if(fs){fs.textContent=billions>=0?'순매수(가집계)':'순매도(가집계)';
@@ -842,11 +847,11 @@ if(/통신|SKT|KT|LGU/.test(name))return '통신';
 if(/철강|포스코|POSCO/.test(name))return '철강';
 return null;};
 const processItems=(items)=>{if(!items||!Array.isArray(items))return;
-items.forEach(item=>{const name=item.hts_kor_isnm||'';const val=parseInt(item.ntby_tr_pbmn||'0');
+items.forEach(item=>{const name=item.hts_kor_isnm||'';const val=parseInt(item.frgn_ntby_tr_pbmn||'0');
 const sector=classify(name);if(sector)sectorMap[sector]=(sectorMap[sector]||0)+val;});};
 if(buyResp&&buyResp.output)processItems(buyResp.output);
 if(sellResp&&sellResp.output)processItems(sellResp.output);
-const sectors=Object.entries(sectorMap).map(([name,val])=>({name,val:Math.round(val/1e8)})).sort((a,b)=>b.val-a.val);
+const sectors=Object.entries(sectorMap).map(([name,val])=>({name,val:Math.round(val/100)})).sort((a,b)=>b.val-a.val);
 if(sectors.length>0){const maxAbs=Math.max(...sectors.map(s=>Math.abs(s.val)),1);
 document.getElementById('sectorBars').innerHTML=sectors.map(s=>{
 const pct=Math.abs(s.val)/maxAbs*100;const cls=s.val>=0?'pos':'neg';
