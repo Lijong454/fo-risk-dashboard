@@ -734,7 +734,20 @@ const kospi=await kisProxyCall('GET','/uapi/domestic-stock/v1/quotations/inquire
 if(kospi&&kospi.output){const o=kospi.output;const p=parseFloat(o.bstp_nmix_prpr);
 const c=parseFloat(o.bstp_nmix_prdy_vrss);const rt=parseFloat(o.bstp_nmix_prdy_ctrt);
 if(cards[0]){cards[0].querySelector('.m-value').textContent=p.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
-const sb=cards[0].querySelector('.m-sub');if(sb){sb.textContent=(c>=0?'+':'')+c.toFixed(2)+' ('+(rt>=0?'+':'')+rt.toFixed(2)+'%)';sb.className='m-sub '+(c>=0?'up':'down');}}}
+const sb=cards[0].querySelector('.m-sub');if(sb){sb.textContent=(c>=0?'+':'')+c.toFixed(2)+' ('+(rt>=0?'+':'')+rt.toFixed(2)+'%)';sb.className='m-sub '+(c>=0?'up':'down');}}
+// Live: advance/decline counts
+const adv=parseInt(o.ascn_issu_cnt)||0,dec2=parseInt(o.down_issu_cnt)||0;
+const advDecEl=document.getElementById('vAdvDec');
+if(advDecEl){advDecEl.innerHTML='<span class="up">'+adv+'</span>/<span class="down">'+dec2+'</span>';
+const advSub=advDecEl.closest('.m-card');if(advSub){const ms=advSub.querySelector('.m-sub');if(ms)ms.textContent=adv>dec2?'상승 우위':adv<dec2?'하락 우위':'균형';}}
+// Live: trading value
+const trVal=parseInt(o.acml_tr_pbmn)||0;
+const volEl=document.getElementById('vVolume');
+if(volEl){const tril=(trVal/1e12).toFixed(1);volEl.textContent=tril+'조';
+const volCard=volEl.closest('.m-card');if(volCard){const vs=volCard.querySelector('.m-sub');
+if(vs){const prvVol=parseInt(o.prdy_vol)||1;const curVol=parseInt(o.acml_vol)||0;
+if(prvVol>0){const pct=Math.round((curVol/prvVol-1)*100);vs.textContent='전일比 '+(pct>=0?'+':'')+pct+'%';}}}}
+}
 const kosdaq=await kisProxyCall('GET','/uapi/domestic-stock/v1/quotations/inquire-index-price','FHPUP02100000',
 {FID_COND_MRKT_DIV_CODE:'U',FID_INPUT_ISCD:'1001'});
 if(kosdaq&&kosdaq.output){const o=kosdaq.output;const p=parseFloat(o.bstp_nmix_prpr);
@@ -767,12 +780,130 @@ return `<div class="watch-row"><div><div class="watch-name">${s.name}</div><div 
 <div class="watch-price"><div class="watch-val">${d.p.toLocaleString()}</div>
 <div class="watch-chg ${cls}">${d.c>=0?'+':''}${d.c.toLocaleString()} (${d.r>=0?'+':''}${d.r.toFixed(2)}%)</div></div></div>`;}).join('');}
 
+// ===== LIVE: KOSPI 30-day Chart =====
+async function fetchLiveKospiChart(){
+if(S.mode!=='live')return;
+try{
+const now=new Date();const pad2=n=>String(n).padStart(2,'0');
+const end=''+now.getFullYear()+pad2(now.getMonth()+1)+pad2(now.getDate());
+const past=new Date(now-35*86400000);
+const start=''+past.getFullYear()+pad2(past.getMonth()+1)+pad2(past.getDate());
+const resp=await kisProxyCall('GET','/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice','FHKUP03500100',{
+FID_COND_MRKT_DIV_CODE:'U',FID_INPUT_ISCD:'0001',FID_INPUT_DATE_1:start,FID_INPUT_DATE_2:end,FID_PERIOD_DIV_CODE:'D'});
+if(resp&&resp.output2&&resp.output2.length>0){
+const data=resp.output2.slice().reverse();
+const labels=data.map(d=>{const ds=d.stck_bsop_date;return parseInt(ds.slice(4,6))+'/'+parseInt(ds.slice(6,8));});
+const prices=data.map(d=>parseFloat(d.bstp_nmix_prpr));
+const ma5=prices.map((_,i,a)=>{if(i<4)return null;return(a[i]+a[i-1]+a[i-2]+a[i-3]+a[i-4])/5;});
+const ma20=prices.map((_,i,a)=>{if(i<19)return null;let s=0;for(let j=0;j<20;j++)s+=a[i-j];return s/20;});
+dc('cKospi30');
+charts.cKospi30=new Chart(document.getElementById('cKospi30'),{type:'line',data:{labels:labels,datasets:[
+{label:'KOSPI',data:prices,borderColor:'#0f3460',borderWidth:2,pointRadius:1,tension:.3,fill:true,backgroundColor:'rgba(15,52,96,.05)'},
+{label:'5일 이평',data:ma5,borderColor:'#fdcb6e',borderWidth:1.5,pointRadius:0,tension:.3,fill:false},
+{label:'20일 이평',data:ma20,borderColor:'#e94560',borderWidth:1.5,pointRadius:0,tension:.3,fill:false,borderDash:[4,2]},
+]},options:copt});
+}}catch(e){console.error('LiveKospiChart err:',e);}}
+
+// ===== LIVE: Foreign Net Buying =====
+async function fetchLiveForeignData(){
+if(S.mode!=='live')return;
+try{
+const buyResp=await kisProxyCall('GET','/uapi/domestic-stock/v1/quotations/foreign-institution-total','FHPTJ04400000',{
+FID_COND_MRKT_DIV_CODE:'V',FID_COND_SCR_DIV_CODE:'16449',FID_INPUT_ISCD:'0001',
+FID_DIV_CLS_CODE:'1',FID_RANK_SORT_CLS_CODE:'0',FID_ETC_CLS_CODE:'1'});
+const sellResp=await kisProxyCall('GET','/uapi/domestic-stock/v1/quotations/foreign-institution-total','FHPTJ04400000',{
+FID_COND_MRKT_DIV_CODE:'V',FID_COND_SCR_DIV_CODE:'16449',FID_INPUT_ISCD:'0001',
+FID_DIV_CLS_CODE:'1',FID_RANK_SORT_CLS_CODE:'1',FID_ETC_CLS_CODE:'1'});
+let totalBuy=0,totalSell=0;
+if(buyResp&&buyResp.output){(Array.isArray(buyResp.output)?buyResp.output:[]).forEach(item=>{
+const v=parseInt(item.ntby_tr_pbmn||'0');if(v>0)totalBuy+=v;});}
+if(sellResp&&sellResp.output){(Array.isArray(sellResp.output)?sellResp.output:[]).forEach(item=>{
+const v=parseInt(item.ntby_tr_pbmn||'0');if(v<0)totalSell+=v;});}
+const netTotal=totalBuy+totalSell;
+const fgnEl=document.getElementById('vFgnSpot');
+if(fgnEl){const billions=Math.round(netTotal/1e8);
+fgnEl.textContent=(billions>=0?'+':'')+billions.toLocaleString()+'억';
+const fc=fgnEl.closest('.m-card');if(fc){const fs=fc.querySelector('.m-sub');
+if(fs){fs.textContent=billions>=0?'순매수(가집계)':'순매도(가집계)';
+fs.className='m-sub '+(billions>=0?'down':'up');}}}
+updateSectorBarsFromStocks(buyResp,sellResp);
+}catch(e){console.error('LiveForeign err:',e);}}
+
+function updateSectorBarsFromStocks(buyResp,sellResp){
+const sectorMap={};
+const classify=(name)=>{
+if(/반도체|SK하이닉스|삼성전자/.test(name))return '반도체';
+if(/자동차|현대차|기아/.test(name))return '자동차';
+if(/금융|은행|증권|보험|KB|신한|하나|우리/.test(name))return '금융';
+if(/바이오|셀트리온|삼성바이오/.test(name))return '바이오';
+if(/한전|가스/.test(name))return '유틸리티';
+if(/화학|LG화학/.test(name))return '화학';
+if(/통신|SKT|KT|LGU/.test(name))return '통신';
+if(/철강|포스코|POSCO/.test(name))return '철강';
+return null;};
+const processItems=(items)=>{if(!items||!Array.isArray(items))return;
+items.forEach(item=>{const name=item.hts_kor_isnm||'';const val=parseInt(item.ntby_tr_pbmn||'0');
+const sector=classify(name);if(sector)sectorMap[sector]=(sectorMap[sector]||0)+val;});};
+if(buyResp&&buyResp.output)processItems(buyResp.output);
+if(sellResp&&sellResp.output)processItems(sellResp.output);
+const sectors=Object.entries(sectorMap).map(([name,val])=>({name,val:Math.round(val/1e8)})).sort((a,b)=>b.val-a.val);
+if(sectors.length>0){const maxAbs=Math.max(...sectors.map(s=>Math.abs(s.val)),1);
+document.getElementById('sectorBars').innerHTML=sectors.map(s=>{
+const pct=Math.abs(s.val)/maxAbs*100;const cls=s.val>=0?'pos':'neg';
+return '<div class="sector-bar-wrap"><div class="sector-name"><span>'+s.name+'</span><span class="'+(s.val>=0?'up':'down')+'">'+(s.val>=0?'+':'')+s.val+'억</span></div><div class="sector-bar"><div class="sector-fill '+cls+'" style="width:'+pct+'%"></div></div></div>';}).join('');}}
+
+// ===== LIVE: Dynamic Interpretation Text =====
+function updateLiveSpotInterp(){
+if(S.mode!=='live')return;
+const kospiEl=document.getElementById('vKospi');
+const chgEl=document.getElementById('chKospi');
+const advDecEl=document.getElementById('vAdvDec');
+const fgnEl=document.getElementById('vFgnSpot');
+const volEl=document.getElementById('vVolume');
+if(!kospiEl)return;
+const kospiText=kospiEl.textContent;
+const chgText=chgEl?chgEl.textContent:'';
+const isUp=chgText.startsWith('+');
+const advText=advDecEl?advDecEl.textContent:'';
+const advMatch=advText.match(/(\d+).*\/(\d+)/);
+const adv=advMatch?parseInt(advMatch[1]):0;
+const dec3=advMatch?parseInt(advMatch[2]):0;
+const fgnText=fgnEl?fgnEl.textContent:'';
+const fgnNeg=fgnText.includes('-');
+const volText=volEl?volEl.textContent:'';
+const spotBox=document.getElementById('spotInterp');
+const spotTxt=document.getElementById('spotInterpText');
+if(spotTxt){let interp='';
+if(isUp&&adv>dec3){interp='KOSPI '+kospiText+'('+chgText+'). 상승 '+adv+'종목, 하락 '+dec3+'종목으로 상승 우위. ';spotBox.className='interp-box safe-box';}
+else if(!isUp&&adv<dec3){interp='KOSPI '+kospiText+'('+chgText+'). 하락 '+dec3+'종목 > 상승 '+adv+'종목. ';spotBox.className='interp-box danger-box';}
+else{interp='KOSPI '+kospiText+'('+chgText+'). 상승 '+adv+'/하락 '+dec3+'종목 혼조세. ';spotBox.className='interp-box warn-box';}
+if(fgnNeg){interp+='외국인 현물 순매도('+fgnText+') 중. ';}
+else{interp+='외국인 현물 순매수('+fgnText+'). ';}
+interp+='거래대금 '+volText+'. (실시간 데이터)';
+spotTxt.textContent=interp;}
+const sectorTxt=document.getElementById('sectorInterpText');
+const sectorBox=document.getElementById('sectorInterp');
+if(sectorTxt){const bars=document.getElementById('sectorBars');
+if(bars&&bars.children.length>0){
+const first=bars.children[0];const last=bars.children[bars.children.length-1];
+const fn=first?.querySelector('.sector-name span:first-child')?.textContent||'';
+const fv=first?.querySelector('.sector-name span:last-child')?.textContent||'';
+const ln=last?.querySelector('.sector-name span:first-child')?.textContent||'';
+const lv=last?.querySelector('.sector-name span:last-child')?.textContent||'';
+let si=fn+' 업종 외국인 순매수 상위('+fv+'), '+ln+' 업종 순매도 하위('+lv+'). ';
+if(fv.includes('+')){si+='업종 간 차별화 진행 중. 외국인 매수 업종 중심 접근 유리.';sectorBox.className='interp-box warn-box';}
+else{si+='전반적 외국인 매도 우위. 방어적 업종 관심 필요.';sectorBox.className='interp-box danger-box';}
+si+=' (가집계 기준)';
+sectorTxt.textContent=si;}}}
+
 function exitLiveMode(){S.mode='demo';document.getElementById('modeBadge').className='badge badge-demo';document.getElementById('modeBadge').textContent='DEMO';window._kisToken=null;window._kisTokenExp=0;simulate();document.getElementById('apiMsg').textContent='DEMO 모드로 전환됨';document.getElementById('apiMsg').style.color='var(--yellow)';}
 function refreshDashboard(){location.reload();}
 function logoutAPI(){localStorage.removeItem('kis_app_key');localStorage.removeItem('kis_app_secret');localStorage.removeItem('kis_proxy_url');localStorage.removeItem('kis_account');localStorage.removeItem('kis_env');localStorage.removeItem('kis_broker');S.mode='demo';window._kisToken=null;window._kisTokenExp=0;document.getElementById('modeBadge').className='badge badge-demo';document.getElementById('modeBadge').textContent='DEMO';document.getElementById('inKey').value='';document.getElementById('inSecret').value='';document.getElementById('inProxy').value='';document.getElementById('inAcct').value='';document.getElementById('apiMsg').textContent='로그아웃 완료. API 정보 삭제됨.';document.getElementById('apiMsg').style.color='var(--red)';simulate();}
 
-setInterval(()=>{if(S.mode==='live'){fetchLiveSpotData();fetchLiveWatchlistData();}},30000);
-setTimeout(()=>{if(S.mode==='live'){fetchLiveSpotData();fetchLiveWatchlistData();}},3000);
+setInterval(()=>{if(S.mode==='live'){fetchLiveSpotData();fetchLiveWatchlistData();fetchLiveForeignData();updateLiveSpotInterp();}},30000);
+setInterval(()=>{if(S.mode==='live'){fetchLiveKospiChart();}},300000);
+setTimeout(()=>{if(S.mode==='live'){fetchLiveSpotData();fetchLiveWatchlistData();fetchLiveForeignData();}},3000);
+setTimeout(()=>{if(S.mode==='live'){fetchLiveKospiChart();updateLiveSpotInterp();}},6000);
 
 // ===== SETTINGS =====
 function saveAPI(){
